@@ -336,7 +336,6 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandTree(
               gpair_h, &opt_partition_builder_, &node_ids_);
           ++i;
         }
-      } else {
         builder_monitor_.Start("EvaluateSplits");
         auto ft = p_fmat->Info().feature_types.ConstHostSpan();
         evaluator_->EvaluateSplits(this->histogram_builder_->Histogram(),

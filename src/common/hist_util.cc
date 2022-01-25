@@ -110,7 +110,6 @@ void ClearHist(GradientSumT* dest_hist,
     dest_hist[bin_id]  = 0;
   }
 }
-
 template void ClearHist(float* dest_hist,
                         size_t begin, size_t end);
 template void ClearHist(double* dest_hist,

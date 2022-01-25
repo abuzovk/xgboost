@@ -358,12 +358,12 @@ void TestHistogramCategorical(size_t n_categories) {
            {GenericParameter::kCpuId, kBins})) {
     auto total_bins = gidx.cut.TotalBins();
     common::OptPartitionBuilder opt_partition_builder;
-  ColumnMatrix column_matrix;
-  column_matrix.Init(gidx, 1);
-  auto n_rows_in_node = gidx.Size();
-  opt_partition_builder.template Init<uint8_t>(gidx, column_matrix, &tree,
-    omp_get_max_threads(), 8, false);
-  std::vector<uint16_t> node_ids(n_rows_in_node, 0);
+    ColumnMatrix column_matrix;
+    column_matrix.Init(gidx, 1);
+    auto n_rows_in_node = gidx.Size();
+    opt_partition_builder.template Init<uint8_t>(gidx, column_matrix, &tree,
+      omp_get_max_threads(), 8, false);
+    std::vector<uint16_t> node_ids(n_rows_in_node, 0);
 
     onehot_hist.Reset(total_bins, kBins,
                       omp_get_max_threads(), 1, 8, false);
