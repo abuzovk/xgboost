@@ -42,40 +42,6 @@ class PartitionBuilder {
     }
   }
 
-  // split row indexes (rid_span) to 2 parts (left_part, right_part) depending
-  // on comparison of indexes values (idx_span) and split point (split_cond)
-  // Handle dense columns
-  // Analog of std::stable_partition, but in no-inplace manner
-  template <bool default_left, bool any_missing, typename ColumnType>
-  inline std::pair<size_t, size_t> PartitionKernel(const ColumnType& column,
-        common::Span<const size_t> rid_span, const int32_t split_cond,
-        common::Span<size_t> left_part, common::Span<size_t> right_part) {
-    size_t* p_left_part = left_part.data();
-    size_t* p_right_part = right_part.data();
-    size_t nleft_elems = 0;
-    size_t nright_elems = 0;
-    auto state = column.GetInitialState(rid_span.front());
-
-    for (auto rid : rid_span) {
-      const int32_t bin_id = column.GetBinIdx(rid, &state);
-      if (any_missing && bin_id == ColumnType::kMissingId) {
-        if (default_left) {
-          p_left_part[nleft_elems++] = rid;
-        } else {
-          p_right_part[nright_elems++] = rid;
-        }
-      } else {
-        if (bin_id <= split_cond) {
-          p_left_part[nleft_elems++] = rid;
-        } else {
-          p_right_part[nright_elems++] = rid;
-        }
-      }
-    }
-
-    return {nleft_elems, nright_elems};
-  }
-
   template <typename Pred>
   inline std::pair<size_t, size_t> PartitionRangeKernel(common::Span<const size_t> ridx,
                                                         common::Span<size_t> left_part,
@@ -93,51 +59,6 @@ class PartitionBuilder {
       }
     }
     return {nleft_elems, nright_elems};
-  }
-
-  template <typename BinIdxType, bool any_missing>
-  void Partition(const size_t node_in_set, const size_t nid, const common::Range1d range,
-                       const int32_t split_cond,
-                       const ColumnMatrix& column_matrix, const RegTree& tree, const size_t* rid) {
-    common::Span<const size_t> rid_span(rid + range.begin(), rid + range.end());
-    common::Span<size_t> left  = GetLeftBuffer(node_in_set,
-                                                                  range.begin(), range.end());
-    common::Span<size_t> right = GetRightBuffer(node_in_set,
-                                                                  range.begin(), range.end());
-    const bst_uint fid = tree[nid].SplitIndex();
-    const bool default_left = tree[nid].DefaultLeft();
-    const auto column_ptr = column_matrix.GetColumn<BinIdxType, any_missing>(fid);
-
-    std::pair<size_t, size_t> child_nodes_sizes;
-
-    if (column_ptr->GetType() == xgboost::common::kDenseColumn) {
-      const common::DenseColumn<BinIdxType, any_missing>& column =
-            static_cast<const common::DenseColumn<BinIdxType, any_missing>& >(*(column_ptr.get()));
-      if (default_left) {
-        child_nodes_sizes = PartitionKernel<true, any_missing>(column, rid_span,
-                                                              split_cond, left, right);
-      } else {
-        child_nodes_sizes = PartitionKernel<false, any_missing>(column, rid_span,
-                                                                split_cond, left, right);
-      }
-    } else {
-      CHECK_EQ(any_missing, true);
-      const common::SparseColumn<BinIdxType>& column
-        = static_cast<const common::SparseColumn<BinIdxType>& >(*(column_ptr.get()));
-      if (default_left) {
-        child_nodes_sizes = PartitionKernel<true, any_missing>(column, rid_span,
-                                                        split_cond, left, right);
-      } else {
-        child_nodes_sizes = PartitionKernel<false, any_missing>(column, rid_span,
-                                                        split_cond, left, right);
-      }
-    }
-
-    const size_t n_left  = child_nodes_sizes.first;
-    const size_t n_right = child_nodes_sizes.second;
-
-    SetNLeftElems(node_in_set, range.begin(), range.end(), n_left);
-    SetNRightElems(node_in_set, range.begin(), range.end(), n_right);
   }
 
   /**

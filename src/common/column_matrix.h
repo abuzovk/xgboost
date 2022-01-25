@@ -83,7 +83,7 @@ class SparseColumn: public Column<BinIdxType> {
       ++(*state);
     }
     if (((*state) < column_size) && GetRowIdx(*state) == rid) {
-      return this->GetGlobalBinIdx(*state);
+      return this->GetFeatureBinIdx(*state);
     } else {
       return this->kMissingId;
     }
@@ -120,9 +120,9 @@ class DenseColumn: public Column<BinIdxType> {
 
   int32_t GetBinIdx(size_t idx, size_t* state) const {
     if (any_missing) {
-      return IsMissing(idx) ? this->kMissingId : this->GetGlobalBinIdx(idx);
+      return IsMissing(idx) ? this->kMissingId : this->GetFeatureBinIdx(idx);
     } else {
-      return this->GetGlobalBinIdx(idx);
+      return this->GetFeatureBinIdx(idx);
     }
   }
 
@@ -143,6 +143,11 @@ class ColumnMatrix {
   // get number of features
   inline bst_uint GetNumFeature() const {
     return static_cast<bst_uint>(type_.size());
+  }
+
+  // get index data ptr
+  const uint8_t* GetIndexData() const {
+    return index_.data();
   }
 
   // construct column matrix from GHistIndexMatrix
