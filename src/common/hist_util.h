@@ -374,6 +374,11 @@ class HistCollection {
     n_nodes_added_ = 0;
   }
 
+  // get number of bins
+  uint32_t GetNumBins() const {
+      return nbins_;
+  }
+
   // create an empty histogram for i-th node
   void AddHistRow(bst_uint nid) {
     constexpr uint32_t kMax = std::numeric_limits<uint32_t>::max();
@@ -418,6 +423,17 @@ class HistCollection {
   std::vector<size_t> row_ptr_;
 };
 
+template<typename GradientSumT>
+void ReduceHist(GradientSumT* dest_hist,
+                const std::vector<std::vector<uint16_t>>& local_threads_mapping,
+                std::vector<std::vector<std::vector<GradientSumT>>>* histograms,
+                const size_t node_id,
+                const std::vector<uint16_t>& threads_id_for_node,
+                size_t begin, size_t end);
+template<typename GradientSumT>
+void ClearHist(GradientSumT* dest_hist,
+                size_t begin, size_t end);
+
 /*!
  * \brief Stores temporary histograms to compute them in parallel
  * Supports processing multiple tree-nodes for nested parallelism
@@ -427,6 +443,16 @@ template<typename GradientSumT>
 class ParallelGHistBuilder {
  public:
   using GHistRowT = GHistRow<GradientSumT>;
+  std::vector<std::vector<std::vector<GradientSumT>>> histograms_buffer;
+  std::vector<std::vector<uint16_t>> local_threads_mapping;
+
+  std::vector<std::vector<std::vector<GradientSumT>>>* GetHistBuffer() {
+    return &histograms_buffer;
+  }
+
+  std::vector<std::vector<uint16_t>>* GetLocalThreadsMapping() {
+    return &local_threads_mapping;
+  }
 
   void Init(size_t nbins) {
     if (nbins != nbins_) {
@@ -434,6 +460,48 @@ class ParallelGHistBuilder {
       nbins_ = nbins;
     }
   }
+
+  void AllocateHistBufer(const int32_t max_depth,
+                         const size_t n_threads) {
+    max_depth_ = std::max(max_depth, 1);
+    if (histograms_buffer.size() == 0) {
+      histograms_buffer.resize(n_threads);
+      local_threads_mapping.resize(n_threads);
+      #pragma omp parallel num_threads(n_threads)
+      {
+        const size_t tid = omp_get_thread_num();
+        local_threads_mapping[tid].resize((1 << (max_depth_ + 2)));
+        histograms_buffer[tid].resize((1 << (max_depth_ - 1)));
+      }
+    }
+  }
+
+  void AllocateHistForLocalThread(const std::vector<uint16_t>& node_id_for_local_thread,
+                                  const size_t tid) {
+    const size_t local_thread_size = node_id_for_local_thread.size();
+    for (size_t nid = 0; nid < local_thread_size; ++nid) {
+      const size_t node_id = node_id_for_local_thread[nid];
+      local_threads_mapping[tid][node_id] = nid;
+      if (histograms_buffer[tid][nid].size() == 0) {
+        histograms_buffer[tid][nid].resize(nbins_*2, 0);
+      }
+    }
+  }
+
+  void ReduceHist(GradientSumT* dest_hist, const std::vector<uint16_t>& threads_id_for_nodes,
+                  size_t nid, size_t begin, size_t end) {
+    if (threads_id_for_nodes.size() != 0) {
+      common::ReduceHist(dest_hist,
+                         local_threads_mapping,
+                         &histograms_buffer,
+                         nid,
+                         threads_id_for_nodes,
+                         2 * begin, 2 * end);
+    } else {
+      common::ClearHist(dest_hist, 2 * begin, 2 * end);
+    }
+  }
+
 
   // Add new elements if needed, mark all hists as unused
   // targeted_hists - already allocated hists which should contain final results after Reduce() call
@@ -575,6 +643,8 @@ class ParallelGHistBuilder {
   size_t nthreads_ = 0;
   /*! \brief number of nodes which will be processed in parallel  */
   size_t nodes_ = 0;
+  /*! \brief max depth which will be processed */
+  int32_t max_depth_ = 1;
   /*! \brief Buffer for additional histograms for Parallel processing  */
   HistCollection<GradientSumT> hist_buffer_;
   /*!
@@ -595,30 +665,6 @@ class ParallelGHistBuilder {
   std::map<std::pair<size_t, size_t>, int> tid_nid_to_hist_;
 };
 
-/*!
- * \brief builder for histograms of gradient statistics
- */
-template<typename GradientSumT>
-class GHistBuilder {
- public:
-  using GHistRowT = GHistRow<GradientSumT>;
-
-  GHistBuilder() = default;
-  explicit GHistBuilder(uint32_t nbins): nbins_{nbins} {}
-
-  // construct a histogram via histogram aggregation
-  template <bool any_missing>
-  void BuildHist(const std::vector<GradientPair> &gpair,
-                 const RowSetCollection::Elem row_indices,
-                 const GHistIndexMatrix &gmat, GHistRowT hist) const;
-  uint32_t GetNumBins() const {
-      return nbins_;
-  }
-
- private:
-  /*! \brief number of all bins over all features */
-  uint32_t nbins_ { 0 };
-};
 
 /*!
  * \brief A C-style array with in-stack allocation. As long as the array is smaller than
